@@ -1,23 +1,39 @@
 
+
+/**
+
+When SIGSTOP is sent to a process, the usual behaviour is to pause that process in its current state. 
+The process will only resume execution if it is sent the SIGCONT signal. 
+SIGSTOP and SIGCONT are used for job control in the Unix shell, among other purposes. 
+SIGSTOP cannot be caught or ignored.
+
+good documentation from https://major.io/2009/06/15/two-great-signals-sigstop-and-sigcont/
+
+
+*/
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <sys/wait.h>
+#include <signal.h>/** library for SIGNALS SIGSTOP SIGCONT*/
 
 #define CICLOS 10
 char *pais[3]={"Peru","Bolvia","Colombia"};
 
 /** implementation of semaphore*/
 typedef struct{
-	int cnt ;
-}semaphore_t ; 
+	int cntr ;
+}semaphore_struct_t;
 
-int waitsem(semaphore_t * shared_sem_ptr);
-int signalsem(semaphore_t * shared_sem_ptr);
+typedef semaphore_struct_t * semaphore_t ;
 
-semaphore_t * g_sem;
+int initsem(semaphore_t  s, int sem_value);
+int waitsem(semaphore_t  s);
+int signalsem(semaphore_t  s);
+
+semaphore_t g_sem;
 
 void proceso(int i)
 {
@@ -62,7 +78,7 @@ int main()
 		exit(2);
 	}
 	/** inicializar semaforo*/
-	g_sem->cnt = 0 ;
+	initsem(g_sem, 0);
 
 	srand(getpid());
 	for(i=0;i<3;i++)
@@ -78,15 +94,29 @@ int main()
 	shmdt(g_sem);
 }
 
-int waitsem(semaphore_t * shared_sem_ptr)
+int initsem(semaphore_t s, int sem_value)
 {
-	/**if*/
 
-	/** block task, avoid busy waiting*/
+}
+int waitsem(semaphore_t s)
+{
+	
+	if( 0== s->cntr)
+	/** check available space*/	
+	{
+		s->cntr--;
+		//available space, you shall pass
+	}
+	else
+	/** block task, avoiding busy waiting*/
+	{
+
+	}	
 	return ( 0 ) ;
 }
-int signalsem(semaphore_t * shared_sem_ptr)
+int signalsem(semaphore_t s)
 {
 	/** awake,or unblock process waiting*/
+
 	return ( 0 ) ;
 }
