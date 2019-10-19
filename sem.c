@@ -65,7 +65,7 @@ void proceso(int i)
 		// Llamada waitsem implementada en la parte 3
 		waitsem(g_sem);
 		//printf("Entra %s ",pais[i]);
-		printf("Entra %s en ciclo %d",pais[i],k);
+		printf("Entra %s en ciclo %i",pais[i],k);
 		fflush(stdout);
 		sleep(rand()%3);
 		printf("- %s Sale\n",pais[i]);
@@ -154,18 +154,19 @@ int waitsem(semaphore_t s)
 		{	
 			/** access to CS now!!*/
 			s->cntr--;
+			s->f_atomic_wait = 0 ;
 			return 0 ;
 		}
-		s->f_atomic_wait = 0 ;
 	}
 	
 	/**process gets directly blocked */
-		s->cntr--;
-		pid_t process_pid = getpid();
-		printf("%d sleep \n", process_pid);
-		enqueue(s,process_pid);
-        kill( process_pid, SIGSTOP );
-return ( 0 ) ;
+	s->cntr--;
+	pid_t process_pid = getpid();
+	printf("%d sleep \n", process_pid);
+	enqueue(s,process_pid);
+	kill( process_pid, SIGSTOP );
+	s->f_atomic_wait = 0 ;
+	return ( 0 ) ;
 }
 int signalsem(semaphore_t s)
 {
@@ -186,7 +187,8 @@ int signalsem(semaphore_t s)
 	else
 	{	
 	/***/
-	printf("fail nobody to signal %d\n",signal_to);
+		printf("fail nobody to signal %d\n",signal_to);
+		s->cntr= 0;
 	}
 	//s->f_atomic_signal = 0 ;
 
