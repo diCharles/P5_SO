@@ -34,6 +34,7 @@ typedef enum{FALSE= 0, TRUE = 1}bool_t ;
 typedef struct
 {
 	int cntr ;/** semaphore counter*/
+	unsigned int bloqueados ; 
 
 	pid_t blocked_queue[NPROCS];/** will store the pid of blocked proccess*/
 	bool_t f_atomic_wait ;
@@ -65,7 +66,7 @@ void proceso(int i)
 		// Llamada waitsem implementada en la parte 3
 		waitsem(g_sem);
 		//printf("Entra %s ",pais[i]);
-		printf("Entra %s en ciclo %i",pais[i],k);
+		printf("Entra %s en ciclo %d   ",pais[i],k);
 		fflush(stdout);
 		sleep(rand()%3);
 		printf("- %s Sale\n",pais[i]);
@@ -74,6 +75,7 @@ void proceso(int i)
 // Espera aleatoria fuera de la sección crítica
 		sleep(rand()%3);
 	}
+	
 	exit(0);
 	// Termina el proceso
 }
@@ -87,7 +89,7 @@ int main()
 	void *thread_result;
 	// Solicitar memoria compartida para el semaforo
 	semaphore_struct_t dummy_sem ;
-	shmid=shmget(0x1235,1024,0666|IPC_CREAT);
+	shmid=shmget(0x1236,sizeof(dummy_sem),0777|IPC_CREAT);
 	if(shmid==-1)
 	{
 		perror("Error en la memoria compartida\n");
@@ -101,7 +103,7 @@ int main()
 		exit(2);
 	}
 	/** inicializar semaforo*/
-	initsem(g_sem, 0);
+	initsem(g_sem, 1);
 
 	srand(getpid());
 	for(i=0; i< NPROCS ; i++ )
@@ -131,67 +133,90 @@ int initsem(semaphore_t s, int sem_value)
 	s->f_atomic_init = 0 ;
 	s->f_atomic_signal = 0 ;
 
+	s->bloqueados = 0 ;
 }
 int waitsem(semaphore_t s)
 {
+	
 	bool_t my_turn = 1 ;
-
-	if( 0 <= s->cntr)
-	/** space available for take CS*/	
-	{
-		/** 
-		consider that the three processes can enter
-		here at the same time
-		*/
-		do{
-			atomic_xchg(my_turn,s->f_atomic_wait);
+	/** 
+	consider that the three processes can enter
+	here at the same time
+	*/
+	int once = 1 ;
+	do{
+		atomic_xchg(my_turn,s->f_atomic_wait);
 			/** super small busy wait in this region*/
-		}while ( my_turn != 0);
+			if(once==1)
+				//printf("%d entra atomica de wait \n", getpid());
 		
+			once= 0; 
+	}while ( my_turn != 0);
+	
 		/** the first process here will enter the critical section */
 		/** consider to ask again if there is  free space again in cs*/
-		if( 0 <= s->cntr)
-		{	
-			/** access to CS now!!*/
-			s->cntr--;
-			s->f_atomic_wait = 0 ;
-			return 0 ;
-		}
-	}
-	
-	/**process gets directly blocked */
 	s->cntr--;
-	pid_t process_pid = getpid();
-	printf("%d sleep \n", process_pid);
-	enqueue(s,process_pid);
-	kill( process_pid, SIGSTOP );
+	//printf("%d sale de atomica de wait , deja cntr en %d\n", getpid(),s->cntr);
+	if( 0 > s->cntr   )
+	{	
+		// poner este proceso en la cola de bloqueados
+		pid_t process_pid = getpid();      
+		
+		enqueue(s,process_pid);
+		//bloquear este proceso
+		s->bloqueados++;
+		//printf("%d sleep , thus cntr =%d , bloqueados %d  [0]%d [1]%d  [2]%d \n", 
+		//process_pid, s->cntr,s->bloqueados,s->blocked_queue[0],s->blocked_queue[1],s->blocked_queue[2]);
+		
+		if(s->bloqueados >= NPROCS)
+		{
+			pid_t new;
+			new = dequeue(s );
+			s->bloqueados--;
+			kill(new, SIGCONT);
+		}	
+		s->f_atomic_wait = 0 ;
+		kill( process_pid, SIGSTOP );
+	}
 	s->f_atomic_wait = 0 ;
 	return ( 0 ) ;
 }
 int signalsem(semaphore_t s)
 {
-	//bool_t my_turn = 1 ;
+	bool_t my_turn = 1 ;
 	/** awake,or unblock process waiting*/
-	//do{
-	//		atomic_xchg(my_turn,s->f_atomic_signal);
-			/** super small busy wait in this region*/
-	//}while ( my_turn != 0);
+	int once = 1 ;
+	do{
+		atomic_xchg(my_turn,s->f_atomic_wait);
+		/** super small busy wait in this region*/
+		if(once==1)
+		{
+			//printf("%d entra atomica de signal \n", getpid());
+		}
+		once = 0 ;
+	}while ( my_turn != 0);
+	//printf("%d sale atomica de signal \n", getpid());
 
-	pid_t signal_to = dequeue( s ) ;
-	if( 0 != signal_to)
-	/** tell next blocked proccess to access the queue*/	
-	{
-		kill(signal_to,SIGCONT);
-		s->cntr++;
-	}
-	else
-	{	
-	/***/
-		printf("fail nobody to signal %d\n",signal_to);
-		s->cntr= 0;
-	}
-	//s->f_atomic_signal = 0 ;
-
+	s->cntr++;
+	
+		// quitar un proceso de la cola de bloqueados
+		pid_t new;
+		new = dequeue(s );
+		//activar proceso si lo hay
+		if(new != 0)
+		{
+			s->bloqueados--;
+			//printf(" signal to continue %d\n",new);
+			kill(new, SIGCONT);
+		}
+		else
+		{
+			//printf("nobody in queue for signal [0]%i  [1]%i [2]%i \n", s->blocked_queue[0],s->blocked_queue[1],s->blocked_queue[2]);
+		}
+	
+	
+	
+	s->f_atomic_wait = 0 ;
 	return ( 0 ) ;
 }
 void enqueue(semaphore_t s , pid_t process_pid)
@@ -204,14 +229,11 @@ void enqueue(semaphore_t s , pid_t process_pid)
 		{
 			/** stop here, a empty place is found*/
 			s->blocked_queue[iterator]= process_pid ;
-			printf(" queue space 0 %d\n", s->blocked_queue[0]);
-			printf(" queue space 1 %d\n", s->blocked_queue[1]);
-			printf(" queue space 2 %d\n", s->blocked_queue[2]);
+			//printf(" now in queue [0]%i  [1]%i [2]%i \n", s->blocked_queue[0],s->blocked_queue[1],s->blocked_queue[2]);
 			return ;
 		}
 	}	
-	printf("error queue full\n");
-	
+	//printf("error queue full\n");
 }
 pid_t dequeue(semaphore_t s )
 {
@@ -230,7 +252,6 @@ pid_t dequeue(semaphore_t s )
 			return aux_dequeued ;
 		}	
 	}	
-	/** NEED TO BE INTEPRETATED AS ERROR*/
-	printf(" fail nobody to dequeue\n");
+	/** this return 0 NEED TO BE INTEPRETATED AS ERROR*/
 	return 0 ;
 }
